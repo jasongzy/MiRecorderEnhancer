@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">小米录音机增强</string>
+    <string name="module_description">为小米录音机增加筛选等实用功能</string>
+    <string name="filter">筛选录音</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_local_only">仅本地</string>
+    <string name="filter_synced">已同步</string>
+    <string name="filter_cloud_only">仅云端</string>
+    <string name="filter_location">位置：%1$s</string>
+    <string name="filter_duration">时长：%1$s</string>
+    <string name="filter_date">日期：%1$s</string>
+    <string name="filter_transcription">文字转写：%1$s</string>
+    <string name="location">位置</string>
+    <string name="duration">时长</string>
+    <string name="date">日期</string>
+    <string name="transcription">文字转写</string>
+    <string name="transcription_completed">已转写</string>
+    <string name="transcription_not_completed">未转写</string>
+    <string name="clear_filters">清除筛选</string>
+    <string name="duration_less_than">少于</string>
+    <string name="duration_at_least">不少于</string>
+    <plurals name="duration_value_less_than">
+        <item quantity="other">少于 %1$d 秒</item>
+    </plurals>
+    <plurals name="duration_value_at_least">
+        <item quantity="other">不少于 %1$d 秒</item>
+    </plurals>
+    <string name="duration_seconds_hint">时长</string>
+    <string name="seconds_unit">秒</string>
+    <string name="date_any">不限日期</string>
+    <string name="date_from">自 %1$s 起</string>
+    <string name="date_until">截至 %1$s</string>
+    <string name="date_range">%1$s 至 %2$s</string>
+    <string name="date_start_value">开始\n%1$s</string>
+    <string name="date_end_value">结束\n%1$s</string>
+    <string name="clear_date_filter">清除日期筛选</string>
+    <string name="apply">应用</string>
+    <string name="cancel">取消</string>
+</resources>

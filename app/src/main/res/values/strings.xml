@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mi Recorder Enhancer</string>
+    <string name="module_description">Adds filtering and other useful features to Xiaomi Recorder.</string>
+    <string name="filter">Filter recordings</string>
+    <string name="filter_all">All</string>
+    <string name="filter_local_only">Local only</string>
+    <string name="filter_synced">Synced</string>
+    <string name="filter_cloud_only">Cloud only</string>
+    <string name="filter_location">Location: %1$s</string>
+    <string name="filter_duration">Duration: %1$s</string>
+    <string name="filter_date">Date: %1$s</string>
+    <string name="filter_transcription">Transcription: %1$s</string>
+    <string name="location">Location</string>
+    <string name="duration">Duration</string>
+    <string name="date">Date</string>
+    <string name="transcription">Transcription</string>
+    <string name="transcription_completed">Transcribed</string>
+    <string name="transcription_not_completed">Not transcribed</string>
+    <string name="clear_filters">Clear filters</string>
+    <string name="duration_less_than">Less than</string>
+    <string name="duration_at_least">At least</string>
+    <plurals name="duration_value_less_than">
+        <item quantity="one">Less than %1$d second</item>
+        <item quantity="other">Less than %1$d seconds</item>
+    </plurals>
+    <plurals name="duration_value_at_least">
+        <item quantity="one">At least %1$d second</item>
+        <item quantity="other">At least %1$d seconds</item>
+    </plurals>
+    <string name="duration_seconds_hint">Duration</string>
+    <string name="seconds_unit">sec</string>
+    <string name="date_any">Any date</string>
+    <string name="date_from">From %1$s</string>
+    <string name="date_until">Until %1$s</string>
+    <string name="date_range">%1$s – %2$s</string>
+    <string name="date_start_value">Start\n%1$s</string>
+    <string name="date_end_value">End\n%1$s</string>
+    <string name="clear_date_filter">Clear date filter</string>
+    <string name="apply">Apply</string>
+    <string name="cancel">Cancel</string>
+</resources>
