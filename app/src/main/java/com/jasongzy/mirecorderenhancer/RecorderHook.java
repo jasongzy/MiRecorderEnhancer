@@ -26,6 +26,7 @@ final class RecorderHook {
     void install() throws ReflectiveOperationException {
         installQueryHook();
         installUiHook();
+        installTranscriptionHook();
     }
 
     private void installQueryHook() throws ReflectiveOperationException {
@@ -72,5 +73,14 @@ final class RecorderHook {
                 return chain.proceed();
             }
         });
+    }
+
+    private void installTranscriptionHook() {
+        try {
+            new TranscriptionHook(module, classLoader).install();
+            module.log(Log.INFO, TAG, "Transcription actions installed");
+        } catch (ReflectiveOperationException exception) {
+            module.log(Log.ERROR, TAG, "Failed to install transcription actions", exception);
+        }
     }
 }

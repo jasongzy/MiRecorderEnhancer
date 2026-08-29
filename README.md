@@ -9,6 +9,7 @@
   - Duration: less than or at least any number of seconds
   - Date: any date range
   - Transcription status: transcribed or not transcribed
+- Manual transcription for one or multiple recordings
 
 ## 📥 Installation
 
