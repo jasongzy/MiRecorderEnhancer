@@ -17,6 +17,7 @@
     <string name="transcription">Transcription</string>
     <string name="transcription_completed">Transcribed</string>
     <string name="transcription_not_completed">Not transcribed</string>
+    <string name="transcription_queue_result">Queued: %1$d; skipped: %2$d</string>
     <string name="clear_filters">Clear filters</string>
     <string name="duration_less_than">Less than</string>
     <string name="duration_at_least">At least</string>

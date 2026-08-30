@@ -5,7 +5,9 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.ActionMode;
@@ -70,6 +72,8 @@ final class TranscriptionHook {
         Class<?> recordsFragment = Class.forName(RecorderSymbols.RECORDS_FRAGMENT_CLASS, false, classLoader);
         resolveSharedSymbols(recordsFragment);
         installPart("single transcription action", () -> {
+            recordAtPositionMethod = recordAdapterField.getType().getMethod(
+                    RecorderSymbols.RECORD_AT_POSITION_METHOD, int.class);
             Class<?> menuInfoClass =
                     Class.forName(RecorderSymbols.CONTEXT_MENU_INFO_CLASS, false, classLoader);
             contextMenuPositionField =
@@ -77,6 +81,8 @@ final class TranscriptionHook {
             hookContextMenu(recordsFragment);
         });
         installPart("batch transcription action", () -> {
+            selectedRecordsMethod = recordAdapterField.getType().getMethod(
+                    RecorderSymbols.SELECTED_RECORDS_METHOD);
             Class<?> actionModeCallback =
                     Class.forName(RecorderSymbols.ACTION_MODE_CALLBACK_CLASS, false, classLoader);
             callbackFragmentField =
@@ -88,9 +94,6 @@ final class TranscriptionHook {
     private void resolveSharedSymbols(Class<?> recordsFragment)
             throws ReflectiveOperationException {
         recordAdapterField = findField(recordsFragment, RecorderSymbols.RECORD_ADAPTER_FIELD);
-        Class<?> adapterClass = recordAdapterField.getType();
-        recordAtPositionMethod = adapterClass.getMethod(RecorderSymbols.RECORD_AT_POSITION_METHOD, int.class);
-        selectedRecordsMethod = adapterClass.getMethod(RecorderSymbols.SELECTED_RECORDS_METHOD);
 
         Class<?> utils = Class.forName(RecorderSymbols.RECOGNITION_UTILS_CLASS, false, classLoader);
         recognitionLanguagesMethod = utils.getMethod(RecorderSymbols.RECOGNITION_LANGUAGES_METHOD);
@@ -158,7 +161,7 @@ final class TranscriptionHook {
             try {
                 Object fragment = chain.getThisObject();
                 Object record = getContextRecord(fragment, item.getMenuInfo());
-                showLanguageDialog(getActivity(fragment), List.of(record), false);
+                showLanguageDialog(getActivity(fragment), List.of(record));
             } catch (Throwable throwable) {
                 module.log(Log.ERROR, TAG, "Failed to start single transcription", unwrap(throwable));
             }
@@ -191,7 +194,7 @@ final class TranscriptionHook {
                 Object fragment = getField(callbackFragmentField, chain.getThisObject());
                 List<?> records = getSelectedRecords(fragment);
                 if (!records.isEmpty()) {
-                    showLanguageDialog(getActivity(fragment), records, true);
+                    showLanguageDialog(getActivity(fragment), records);
                 }
                 ((ActionMode) chain.getArg(0)).finish();
             } catch (Throwable throwable) {
@@ -283,7 +286,7 @@ final class TranscriptionHook {
     }
 
     @SuppressWarnings("unchecked")
-    private void showLanguageDialog(Activity activity, List<?> records, boolean showQueuedToast)
+    private void showLanguageDialog(Activity activity, List<?> records)
             throws ReflectiveOperationException {
         Object service = activity.getClass()
                 .getMethod(RecorderSymbols.RECORD_ACTIVITY_SERVICE_METHOD)
@@ -296,7 +299,7 @@ final class TranscriptionHook {
         ArrayList<String> labels = (ArrayList<String>) recognitionLanguagesMethod.invoke(null);
         ArrayList<Integer> languageTypes = (ArrayList<Integer>) recognitionLanguageTypesMethod.invoke(null);
         DialogInterface.OnClickListener listener = (dialog, position) -> enqueueAsync(
-                activity, service, records, languageTypes.get(position), showQueuedToast);
+                activity, service, records, languageTypes.get(position));
 
         Object builder = recognitionDialogBuilderConstructor.newInstance(activity);
         setField(
@@ -322,19 +325,17 @@ final class TranscriptionHook {
             Activity activity,
             Object service,
             List<?> records,
-            int languageType,
-            boolean showQueuedToast) {
+            int languageType) {
         Context context = activity.getApplicationContext();
         EXECUTOR.execute(() -> {
             try {
-                int submitted = enqueue(service, records, languageType);
-                if (showQueuedToast && submitted > 0) {
-                    activity.getMainExecutor().execute(() -> Toast.makeText(
-                                    context,
-                                    targetString(context, "recognition_button_add_to_queue"),
-                                    Toast.LENGTH_SHORT)
-                            .show());
-                }
+                EnqueueResult result = enqueue(service, records, languageType);
+                String message = queueResultText(context, result);
+                activity.getMainExecutor().execute(() -> Toast.makeText(
+                                context,
+                                message,
+                                Toast.LENGTH_SHORT)
+                        .show());
             } catch (Throwable throwable) {
                 module.log(Log.ERROR, TAG, "Failed to enqueue transcription", unwrap(throwable));
                 activity.getMainExecutor().execute(() -> Toast.makeText(
@@ -346,16 +347,18 @@ final class TranscriptionHook {
         });
     }
 
-    private int enqueue(Object service, List<?> records, int languageType)
+    private EnqueueResult enqueue(Object service, List<?> records, int languageType)
             throws ReflectiveOperationException {
         Method enqueue = service.getClass().getMethod(
                 RecorderSymbols.RECOGNITION_ENQUEUE_METHOD, recognitionTaskClass);
         int submitted = 0;
+        int skipped = 0;
 
         for (Object record : records) {
             String path = (String) record.getClass().getMethod("getFilePath").invoke(record);
             String sha1 = (String) record.getClass().getMethod("getSha1").invoke(record);
             if (TextUtils.isEmpty(path) || TextUtils.isEmpty(sha1)) {
+                skipped++;
                 continue;
             }
             Object config = recognitionConfigConstructor.newInstance();
@@ -366,7 +369,20 @@ final class TranscriptionHook {
             enqueue.invoke(service, recognitionTaskConstructor.newInstance(config));
             submitted++;
         }
-        return submitted;
+        return new EnqueueResult(submitted, skipped);
+    }
+
+    private String queueResultText(Context context, EnqueueResult result) {
+        try {
+            Resources resources = context.getPackageManager()
+                    .getResourcesForApplication(module.getModuleApplicationInfo());
+            return resources.getString(
+                    R.string.transcription_queue_result, result.submitted(), result.skipped());
+        } catch (PackageManager.NameNotFoundException exception) {
+            module.log(Log.WARN, TAG, "Unable to load module transcription result text", exception);
+            return targetString(context, "recognition_button_add_to_queue")
+                    + " " + result.submitted() + "/" + (result.submitted() + result.skipped());
+        }
     }
 
     private String targetString(Context context, String name) {
@@ -410,4 +426,6 @@ final class TranscriptionHook {
     private interface HookInstaller {
         void install() throws ReflectiveOperationException;
     }
+
+    private record EnqueueResult(int submitted, int skipped) {}
 }

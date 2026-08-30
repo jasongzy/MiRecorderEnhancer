@@ -17,6 +17,7 @@
     <string name="transcription">文字转写</string>
     <string name="transcription_completed">已转写</string>
     <string name="transcription_not_completed">未转写</string>
+    <string name="transcription_queue_result">已加入 %1$d 条，跳过 %2$d 条</string>
     <string name="clear_filters">清除筛选</string>
     <string name="duration_less_than">少于</string>
     <string name="duration_at_least">不少于</string>
