@@ -12,8 +12,6 @@ import io.github.libxposed.api.XposedModule;
 @SuppressLint("PrivateApi")
 final class RecorderHook {
     private static final String TAG = "MiRecorderEnhancer";
-    private static final String PROVIDER_CLASS = "com.android.soundrecorder.database.RecorderProvider";
-    private static final String ACTION_BAR_CLASS = "miuix.appcompat.internal.app.widget.ActionBarView";
 
     private final XposedModule module;
     private final ClassLoader classLoader;
@@ -23,14 +21,14 @@ final class RecorderHook {
         this.classLoader = classLoader;
     }
 
-    void install() throws ReflectiveOperationException {
-        installQueryHook();
-        installUiHook();
-        installTranscriptionHook();
+    void install() {
+        installSafely("Record query hook", this::installQueryHook);
+        installSafely("Filter UI hook", this::installUiHook);
+        installSafely("Transcription hook", this::installTranscriptionHook);
     }
 
     private void installQueryHook() throws ReflectiveOperationException {
-        Class<?> provider = Class.forName(PROVIDER_CLASS, false, classLoader);
+        Class<?> provider = Class.forName(RecorderSymbols.PROVIDER_CLASS, false, classLoader);
         Method query = provider.getDeclaredMethod(
                 "query", Uri.class, String[].class, String.class, String[].class, String.class);
         module.hook(query).intercept(chain -> {
@@ -56,7 +54,7 @@ final class RecorderHook {
     }
 
     private void installUiHook() throws ReflectiveOperationException {
-        Class<?> actionBarClass = Class.forName(ACTION_BAR_CLASS, false, classLoader);
+        Class<?> actionBarClass = Class.forName(RecorderSymbols.ACTION_BAR_CLASS, false, classLoader);
         Method setEndView = actionBarClass.getDeclaredMethod("setEndView", View.class);
         module.hook(setEndView).intercept(chain -> {
             View endView = (View) chain.getArg(0);
@@ -75,12 +73,21 @@ final class RecorderHook {
         });
     }
 
-    private void installTranscriptionHook() {
+    private void installTranscriptionHook() throws ReflectiveOperationException {
+        new TranscriptionHook(module, classLoader).install();
+    }
+
+    private void installSafely(String name, HookInstaller installer) {
         try {
-            new TranscriptionHook(module, classLoader).install();
-            module.log(Log.INFO, TAG, "Transcription actions installed");
-        } catch (ReflectiveOperationException exception) {
-            module.log(Log.ERROR, TAG, "Failed to install transcription actions", exception);
+            installer.install();
+            module.log(Log.INFO, TAG, name + " installed");
+        } catch (Throwable throwable) {
+            module.log(Log.ERROR, TAG, "Failed to install " + name, throwable);
         }
+    }
+
+    @FunctionalInterface
+    private interface HookInstaller {
+        void install() throws ReflectiveOperationException;
     }
 }
