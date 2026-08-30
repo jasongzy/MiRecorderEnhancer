@@ -1,0 +1,204 @@
+name: LSPosed Release
+
+on:
+  workflow_call:
+    inputs:
+      source_tag:
+        required: true
+        type: string
+    secrets:
+      XPOSED_REPO_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Source GitHub release tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  XPOSED_REPOSITORY: Xposed-Modules-Repo/com.jasongzy.mirecorderenhancer
+  ANDROID_BUILD_TOOLS: "35.0.0"
+
+jobs:
+  lsposed-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android build tools
+        run: sdkmanager "build-tools;${ANDROID_BUILD_TOOLS}"
+      - name: Download source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir source-assets
+          gh release view "$SOURCE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json body,isPrerelease \
+            > source-release.json
+          gh release download "$SOURCE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir source-assets
+          jq -r '.body // ""' source-release.json > release-notes.md
+      - name: Validate source APK
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find source-assets -maxdepth 1 -type f -name '*.apk' -print)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one APK, found ${#apks[@]}"
+            exit 1
+          fi
+
+          apk="${apks[0]}"
+          apk_name="$(basename "$apk")"
+          checksum="${apk}.sha256"
+          if [ -f "$checksum" ]; then
+            (cd source-assets && sha256sum --check "${apk_name}.sha256")
+          fi
+
+          aapt="${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt"
+          badging="$("$aapt" dump badging "$apk")"
+          package_name="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+          version_code="$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionCode='\([^']*\)'.*/\1/p")"
+          version_name="$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p")"
+
+          test -n "$package_name"
+          [[ "$version_code" =~ ^[0-9]+$ ]]
+          [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+          expected_package="${XPOSED_REPOSITORY#Xposed-Modules-Repo/}"
+          if [ "$package_name" != "$expected_package" ]; then
+            echo "::error::APK package is $package_name, expected $expected_package"
+            exit 1
+          fi
+          if [ "$SOURCE_TAG" != "$version_name" ]; then
+            echo "::error::Source tag is $SOURCE_TAG, APK versionName is $version_name"
+            exit 1
+          fi
+
+          {
+            echo "APK_PATH=$apk"
+            echo "APK_NAME=$apk_name"
+            echo "VERSION_CODE=$version_code"
+            echo "VERSION_NAME=$version_name"
+            echo "TARGET_TAG=${version_code}-${version_name}"
+          } >> "$GITHUB_ENV"
+
+          echo "Package: $package_name"
+          echo "VersionCode: $version_code"
+          echo "VersionName: $version_name"
+          echo "Target tag: ${version_code}-${version_name}"
+          sha256sum "$apk"
+      - name: Validate Xposed repository access
+        env:
+          GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          permission="$(gh repo view "$XPOSED_REPOSITORY" --json viewerPermission --jq '.viewerPermission')"
+          case "$permission" in
+            ADMIN|MAINTAIN|WRITE) ;;
+            *)
+              echo "::error::Insufficient Xposed repository permission: $permission"
+              exit 1
+              ;;
+          esac
+
+          target_branch="$(gh repo view "$XPOSED_REPOSITORY" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+          test -n "$target_branch"
+          echo "TARGET_BRANCH=$target_branch" >> "$GITHUB_ENV"
+      - name: Publish Xposed release
+        env:
+          GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TARGET_TAG" --repo "$XPOSED_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TARGET_TAG already exists."
+            gh release view "$TARGET_TAG" \
+              --repo "$XPOSED_REPOSITORY" \
+              --json body,isPrerelease \
+              > target-release.json
+            jq -r '.body // ""' target-release.json > target-release-notes.md
+            if ! cmp --silent release-notes.md target-release-notes.md; then
+              echo "::error::Existing Xposed release notes differ from the source release."
+              exit 1
+            fi
+
+            source_prerelease="$(jq -r '.isPrerelease' source-release.json)"
+            target_prerelease="$(jq -r '.isPrerelease' target-release.json)"
+            if [ "$source_prerelease" != "$target_prerelease" ]; then
+              echo "::error::Existing Xposed prerelease state differs from the source release."
+              exit 1
+            fi
+
+            mkdir target-assets
+            gh release download "$TARGET_TAG" \
+              --repo "$XPOSED_REPOSITORY" \
+              --pattern "$APK_NAME" \
+              --dir target-assets
+            if ! cmp --silent "$APK_PATH" "target-assets/$APK_NAME"; then
+              echo "::error::Existing Xposed APK differs from the source APK."
+              exit 1
+            fi
+
+            checksum="${APK_PATH}.sha256"
+            if [ -f "$checksum" ]; then
+              gh release download "$TARGET_TAG" \
+                --repo "$XPOSED_REPOSITORY" \
+                --pattern "${APK_NAME}.sha256" \
+                --dir target-assets
+              if ! cmp --silent "$checksum" "target-assets/${APK_NAME}.sha256"; then
+                echo "::error::Existing Xposed checksum differs from the source release."
+                exit 1
+              fi
+            fi
+            echo "Existing Xposed release is identical. Nothing to publish."
+            exit 0
+          fi
+
+          assets=("$APK_PATH")
+          checksum="${APK_PATH}.sha256"
+          if [ -f "$checksum" ]; then
+            assets+=("$checksum")
+          fi
+
+          release_flags=()
+          if [ "$(jq -r '.isPrerelease' source-release.json)" = "true" ]; then
+            release_flags+=(--prerelease)
+          fi
+
+          gh release create "$TARGET_TAG" \
+            "${assets[@]}" \
+            --repo "$XPOSED_REPOSITORY" \
+            --target "$TARGET_BRANCH" \
+            --title "$VERSION_NAME" \
+            --notes-file release-notes.md \
+            "${release_flags[@]}"
+      - name: Verify Xposed release
+        env:
+          GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir verify-assets
+          gh release download "$TARGET_TAG" \
+            --repo "$XPOSED_REPOSITORY" \
+            --pattern "$APK_NAME" \
+            --dir verify-assets
+          source_sha="$(sha256sum "$APK_PATH" | awk '{print $1}')"
+          target_sha="$(sha256sum "verify-assets/$APK_NAME" | awk '{print $1}')"
+          echo "Source SHA-256: $source_sha"
+          echo "Target SHA-256: $target_sha"
+          test "$source_sha" = "$target_sha"

@@ -100,3 +100,14 @@ jobs:
           --verify-tag
           --generate-notes
           --title "${APP_DISPLAY_NAME} ${GITHUB_REF_NAME}"
+
+  lsposed-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/lsposed-release.yml
+    with:
+      source_tag: ${{ github.ref_name }}
+    secrets:
+      XPOSED_REPO_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
