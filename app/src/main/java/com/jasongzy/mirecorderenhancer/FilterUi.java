@@ -22,6 +22,7 @@ import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewOutlineProvider;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
@@ -31,15 +32,16 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListAdapter;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.text.DateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Locale;
 
 @SuppressLint("DiscouragedApi")
 final class FilterUi {
-    private static final String TARGET_PACKAGE = "com.android.soundrecorder";
     private static final String TAG = "MiRecorderEnhancer";
     private static final String VIEW_TAG = "com.jasongzy.mirecorderenhancer.FILTER";
     private static final Uri RECORDS_URI = Uri.parse("content://records/records");
@@ -58,7 +60,7 @@ final class FilterUi {
             return endView;
         }
         Context targetContext = actionBar.getContext();
-        int settingsId = targetContext.getResources().getIdentifier("settings", "id", TARGET_PACKAGE);
+        int settingsId = targetContext.getResources().getIdentifier("settings", "id", RecorderSymbols.PACKAGE);
         if (endView.findViewById(settingsId) == null) {
             return endView;
         }
@@ -124,14 +126,20 @@ final class FilterUi {
             String[] labels) {
         try {
             ClassLoader loader = context.getClassLoader();
-            Object actionPresenter = actionBar.getClass().getField("h").get(actionBar);
+            Object actionPresenter = actionBar.getClass()
+                    .getField(RecorderSymbols.ACTION_BAR_PRESENTER_FIELD)
+                    .get(actionBar);
             if (actionPresenter == null) {
                 throw new IllegalStateException("Action bar presenter is unavailable");
             }
-            Context popupContext = (Context) actionPresenter.getClass().getField("b").get(actionPresenter);
-            View popupHost = (View) actionPresenter.getClass().getField("K").get(actionPresenter);
+            Context popupContext = (Context) actionPresenter.getClass()
+                    .getField(RecorderSymbols.MENU_PRESENTER_CONTEXT_FIELD)
+                    .get(actionPresenter);
+            View popupHost = (View) actionPresenter.getClass()
+                    .getField(RecorderSymbols.MENU_PRESENTER_HOST_FIELD)
+                    .get(actionPresenter);
             Class<?> menuClass = Class.forName(
-                    "miuix.appcompat.internal.view.menu.MenuBuilder", false, loader);
+                    RecorderSymbols.MIUIX_MENU_BUILDER_CLASS, false, loader);
             Object menu = menuClass.getConstructor(Context.class).newInstance(popupContext);
             for (int i = 0; i < itemIds.length; i++) {
                 int itemId = itemIds[i];
@@ -143,16 +151,16 @@ final class FilterUi {
             }
 
             Class<?> presenterClass = Class.forName(
-                    "miuix.appcompat.internal.view.menu.i", false, loader);
+                    RecorderSymbols.MIUIX_MENU_PRESENTER_CLASS, false, loader);
             Object presenter = presenterClass
                     .getConstructor(Context.class, menuClass, View.class, View.class, boolean.class)
                     .newInstance(popupContext, menu, anchor, popupHost, true);
             int itemLayout = context.getResources().getIdentifier(
-                    "miuix_appcompat_overflow_popup_menu_item_layout", "layout", TARGET_PACKAGE);
+                    "miuix_appcompat_overflow_popup_menu_item_layout", "layout", RecorderSymbols.PACKAGE);
             if (itemLayout != 0) {
-                presenterClass.getField("k").setInt(presenter, itemLayout);
+                presenterClass.getField(RecorderSymbols.POPUP_ITEM_LAYOUT_FIELD).setInt(presenter, itemLayout);
             }
-            presenterClass.getMethod("g").invoke(presenter);
+            presenterClass.getMethod(RecorderSymbols.POPUP_SHOW_METHOD).invoke(presenter);
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             Log.e(TAG, "Unable to show MIUIX popup menu", ignored);
             showMiuixMenuDialog(context, resources, itemIds, labels);
@@ -257,6 +265,21 @@ final class FilterUi {
         FrameLayout.LayoutParams unitParams = new FrameLayout.LayoutParams(
                 dp(targetContext, 56), FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END);
         input.addView(unit, unitParams);
+        input.setVisibility(selected[0] == FilterState.DurationOperator.ALL.ordinal()
+                ? View.GONE
+                : View.VISIBLE);
+        for (int i = 0; i < operators.length; i++) {
+            int index = i;
+            operators[i].setOnClickListener(view -> {
+                selected[0] = index;
+                updateSegmentStyles(targetContext, operators, index);
+                updateDurationInputVisibility(
+                        targetContext,
+                        input,
+                        seconds,
+                        index != FilterState.DurationOperator.ALL.ordinal());
+            });
+        }
 
         LinearLayout container = new LinearLayout(targetContext);
         container.setOrientation(LinearLayout.VERTICAL);
@@ -282,16 +305,36 @@ final class FilterUi {
                                     FilterState.DurationOperator.values()[selected[0]], value));
                 },
                 resources.getString(R.string.cancel));
-        seconds.requestFocus();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
-        }
-        seconds.post(() -> {
-            InputMethodManager keyboard = targetContext.getSystemService(InputMethodManager.class);
-            if (keyboard != null) {
-                keyboard.showSoftInput(seconds, InputMethodManager.SHOW_IMPLICIT);
+        if (selected[0] != FilterState.DurationOperator.ALL.ordinal()) {
+            seconds.requestFocus();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
             }
-        });
+            seconds.post(() -> showKeyboard(targetContext, seconds));
+        }
+    }
+
+    private static void updateDurationInputVisibility(
+            Context context, View input, EditText seconds, boolean visible) {
+        input.setVisibility(visible ? View.VISIBLE : View.GONE);
+        InputMethodManager keyboard = context.getSystemService(InputMethodManager.class);
+        if (visible) {
+            seconds.requestFocus();
+            seconds.post(() -> showKeyboard(context, seconds));
+        } else {
+            seconds.clearFocus();
+            if (keyboard != null) {
+                keyboard.hideSoftInputFromWindow(seconds.getWindowToken(), 0);
+            }
+        }
+    }
+
+    private static void showKeyboard(Context context, EditText input) {
+        InputMethodManager keyboard = context.getSystemService(InputMethodManager.class);
+        if (keyboard != null) {
+            keyboard.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+        }
     }
 
     private static void showTranscriptionDialog(Context targetContext, Resources resources) {
@@ -367,11 +410,16 @@ final class FilterUi {
         container.addView(reset, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        ScrollView scroll = new ScrollView(targetContext);
+        scroll.setFillViewport(true);
+        scroll.addView(container, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+
         Dialog[] shown = new Dialog[1];
         shown[0] = showMiuixDialog(
                 targetContext,
                 resources.getString(R.string.date),
-                container,
+                scroll,
                 resources.getString(R.string.apply),
                 (ignored, which) -> {
                     storeSelectedDate(picker, range, selected[0]);
@@ -380,7 +428,7 @@ final class FilterUi {
                     applyState(targetContext, FilterController.get().withDate(start, nextDay(end)));
                 },
                 resources.getString(R.string.cancel));
-        watchDatePicker(picker, resources, endpoints, range, selected, shown[0]);
+        observeDatePicker(picker, resources, endpoints, range, selected, shown[0]);
         reset.setOnClickListener(view -> {
             applyState(targetContext, FilterController.get().withDate(null, null));
             shown[0].dismiss();
@@ -388,10 +436,16 @@ final class FilterUi {
     }
 
     private static long parseSeconds(String text, long fallback) {
-        if (text.isEmpty()) {
-            return Math.max(1, Math.min(fallback, MAX_DURATION_SECONDS));
+        long safeFallback = Math.max(1, Math.min(fallback, MAX_DURATION_SECONDS));
+        if (text.isBlank()) {
+            return safeFallback;
         }
-        return Math.max(1, Math.min(Long.parseLong(text), MAX_DURATION_SECONDS));
+        try {
+            return Math.max(1, Math.min(Long.parseLong(text.trim()), MAX_DURATION_SECONDS));
+        } catch (NumberFormatException exception) {
+            Log.w(TAG, "Invalid duration input", exception);
+            return safeFallback;
+        }
     }
 
     private static TextView[] createSegments(Context context, String... labels) {
@@ -447,13 +501,14 @@ final class FilterUi {
     private static View createDatePicker(Context context, long date) {
         try {
             Class<?> pickerClass = Class.forName(
-                    "miuix.pickerwidget.widget.Calendar.CalendarDatePicker", false, context.getClassLoader());
+                    RecorderSymbols.MIUIX_CALENDAR_PICKER_CLASS, false, context.getClassLoader());
             View picker = (View) pickerClass
                     .getConstructor(Context.class, android.util.AttributeSet.class)
                     .newInstance(context, null);
             pickerClass.getMethod("setDate", long.class).invoke(picker, date);
             return picker;
-        } catch (ReflectiveOperationException | ClassCastException ignored) {
+        } catch (ReflectiveOperationException | ClassCastException exception) {
+            Log.w(TAG, "MIUIX calendar unavailable; using Android DatePicker", exception);
             Calendar calendar = Calendar.getInstance();
             calendar.setTimeInMillis(date);
             DatePicker picker = new DatePicker(context);
@@ -477,15 +532,17 @@ final class FilterUi {
         }
         try {
             picker.getClass().getMethod("setDate", long.class).invoke(picker, date);
-        } catch (ReflectiveOperationException ignored) {}
+        } catch (ReflectiveOperationException exception) {
+            Log.e(TAG, "Unable to update MIUIX calendar date", exception);
+        }
     }
 
-    private static void storeSelectedDate(View picker, long[] range, int selected) {
+    private static boolean storeSelectedDate(View picker, long[] range, int selected) {
         if (picker instanceof DatePicker datePicker) {
             range[selected] = dayStart(
                     datePicker.getYear(), datePicker.getMonth(), datePicker.getDayOfMonth());
             normalizeRange(range, selected);
-            return;
+            return true;
         }
         try {
             int year = (int) picker.getClass().getMethod("getYear").invoke(picker);
@@ -493,7 +550,11 @@ final class FilterUi {
             int day = (int) picker.getClass().getMethod("getDayOfMonth").invoke(picker);
             range[selected] = dayStart(year, month, day);
             normalizeRange(range, selected);
-        } catch (ReflectiveOperationException | ClassCastException ignored) {}
+            return true;
+        } catch (ReflectiveOperationException | ClassCastException exception) {
+            Log.e(TAG, "Unable to read MIUIX calendar date", exception);
+            return false;
+        }
     }
 
     private static void normalizeRange(long[] range, int selected) {
@@ -504,28 +565,46 @@ final class FilterUi {
         }
     }
 
-    private static void watchDatePicker(
+    private static void observeDatePicker(
             View picker,
             Resources resources,
             TextView[] endpoints,
             long[] range,
             int[] selected,
             Dialog dialog) {
-        Runnable[] watcher = new Runnable[1];
-        watcher[0] = () -> {
-            if (!dialog.isShowing()) {
-                return;
+        if (picker instanceof DatePicker datePicker) {
+            datePicker.init(
+                    datePicker.getYear(),
+                    datePicker.getMonth(),
+                    datePicker.getDayOfMonth(),
+                    (view, year, month, day) -> {
+                        range[selected[0]] = dayStart(year, month, day);
+                        normalizeRange(range, selected[0]);
+                        updateDateLabels(resources, endpoints, range);
+                    });
+            return;
+        }
+
+        boolean[] readable = {true};
+        ViewTreeObserver.OnPreDrawListener listener = () -> {
+            if (!readable[0]) {
+                return true;
             }
             long oldStart = range[0];
             long oldEnd = range[1];
-            storeSelectedDate(picker, range, selected[0]);
+            readable[0] = storeSelectedDate(picker, range, selected[0]);
             if (range[0] != oldStart || range[1] != oldEnd) {
                 updateDateLabels(resources, endpoints, range);
             }
-            picker.postDelayed(watcher[0], 100);
+            return true;
         };
-        dialog.setOnDismissListener(ignored -> picker.removeCallbacks(watcher[0]));
-        picker.post(watcher[0]);
+        picker.getViewTreeObserver().addOnPreDrawListener(listener);
+        dialog.setOnDismissListener(ignored -> {
+            ViewTreeObserver observer = picker.getViewTreeObserver();
+            if (observer.isAlive()) {
+                observer.removeOnPreDrawListener(listener);
+            }
+        });
     }
 
     private static Drawable roundedBackground(int color, int radius) {
@@ -537,7 +616,8 @@ final class FilterUi {
 
     private static TextView createMiuixTextView(Context context) {
         try {
-            Class<?> viewClass = Class.forName("miuix.appcompat.widget.TextView", false, context.getClassLoader());
+            Class<?> viewClass = Class.forName(
+                    RecorderSymbols.MIUIX_TEXT_VIEW_CLASS, false, context.getClassLoader());
             return (TextView) viewClass
                     .getConstructor(Context.class, android.util.AttributeSet.class)
                     .newInstance(context, null);
@@ -548,8 +628,8 @@ final class FilterUi {
 
     private static EditText createMiuixEditText(Context context) {
         try {
-            Class<?> viewClass =
-                    Class.forName("miuix.androidbasewidget.widget.EditText", false, context.getClassLoader());
+            Class<?> viewClass = Class.forName(
+                    RecorderSymbols.MIUIX_EDIT_TEXT_CLASS, false, context.getClassLoader());
             return (EditText) viewClass
                     .getConstructor(Context.class, android.util.AttributeSet.class)
                     .newInstance(context, null);
@@ -584,19 +664,34 @@ final class FilterUi {
             String negative) {
         try {
             int itemLayout = context.getResources().getIdentifier(
-                    "miuix_appcompat_select_dialog_singlechoice", "layout", TARGET_PACKAGE);
+                    "miuix_appcompat_select_dialog_singlechoice", "layout", RecorderSymbols.PACKAGE);
             ListAdapter adapter = new ArrayAdapter<>(context, itemLayout, android.R.id.text1, labels);
-            Class<?> builderClass = Class.forName("miuix.appcompat.app.k", false, context.getClassLoader());
+            Class<?> builderClass = Class.forName(
+                    RecorderSymbols.MIUIX_DIALOG_BUILDER_CLASS, false, context.getClassLoader());
             Object builder = builderClass.getConstructor(Context.class).newInstance(context);
-            builderClass.getMethod("w", CharSequence.class).invoke(builder, title);
-            builderClass.getMethod("t", ListAdapter.class, int.class, DialogInterface.OnClickListener.class)
+            builderClass.getMethod(RecorderSymbols.DIALOG_TITLE_METHOD, CharSequence.class).invoke(builder, title);
+            builderClass
+                    .getMethod(
+                            RecorderSymbols.DIALOG_SINGLE_CHOICE_METHOD,
+                            ListAdapter.class,
+                            int.class,
+                            DialogInterface.OnClickListener.class)
                     .invoke(builder, adapter, checked, itemListener);
-            builderClass.getMethod("s", String.class, DialogInterface.OnClickListener.class)
+            builderClass
+                    .getMethod(
+                            RecorderSymbols.DIALOG_POSITIVE_METHOD,
+                            String.class,
+                            DialogInterface.OnClickListener.class)
                     .invoke(builder, positive, positiveListener);
-            builderClass.getMethod("l", String.class, DialogInterface.OnClickListener.class)
+            builderClass
+                    .getMethod(
+                            RecorderSymbols.DIALOG_NEGATIVE_METHOD,
+                            String.class,
+                            DialogInterface.OnClickListener.class)
                     .invoke(builder, negative, null);
-            builderClass.getMethod("y").invoke(builder);
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            builderClass.getMethod(RecorderSymbols.DIALOG_SHOW_METHOD).invoke(builder);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            Log.w(TAG, "MIUIX single-choice dialog unavailable; using Android dialog", exception);
             new AlertDialog.Builder(context)
                     .setTitle(title)
                     .setSingleChoiceItems(labels, checked, itemListener)
@@ -614,16 +709,26 @@ final class FilterUi {
             DialogInterface.OnClickListener listener,
             String negative) {
         try {
-            Class<?> builderClass = Class.forName("miuix.appcompat.app.k", false, context.getClassLoader());
+            Class<?> builderClass = Class.forName(
+                    RecorderSymbols.MIUIX_DIALOG_BUILDER_CLASS, false, context.getClassLoader());
             Object builder = builderClass.getConstructor(Context.class).newInstance(context);
-            builderClass.getMethod("w", CharSequence.class).invoke(builder, title);
-            builderClass.getMethod("x", View.class).invoke(builder, content);
-            builderClass.getMethod("s", String.class, DialogInterface.OnClickListener.class)
+            builderClass.getMethod(RecorderSymbols.DIALOG_TITLE_METHOD, CharSequence.class).invoke(builder, title);
+            builderClass.getMethod(RecorderSymbols.DIALOG_CONTENT_METHOD, View.class).invoke(builder, content);
+            builderClass
+                    .getMethod(
+                            RecorderSymbols.DIALOG_POSITIVE_METHOD,
+                            String.class,
+                            DialogInterface.OnClickListener.class)
                     .invoke(builder, positive, listener);
-            builderClass.getMethod("l", String.class, DialogInterface.OnClickListener.class)
+            builderClass
+                    .getMethod(
+                            RecorderSymbols.DIALOG_NEGATIVE_METHOD,
+                            String.class,
+                            DialogInterface.OnClickListener.class)
                     .invoke(builder, negative, null);
-            return (Dialog) builderClass.getMethod("y").invoke(builder);
-        } catch (ReflectiveOperationException | ClassCastException ignored) {
+            return (Dialog) builderClass.getMethod(RecorderSymbols.DIALOG_SHOW_METHOD).invoke(builder);
+        } catch (ReflectiveOperationException | ClassCastException exception) {
+            Log.w(TAG, "MIUIX content dialog unavailable; using Android dialog", exception);
             return new AlertDialog.Builder(context)
                     .setTitle(title)
                     .setView(content)
@@ -635,12 +740,14 @@ final class FilterUi {
 
     private static Dialog showMiuixContentDialog(Context context, String title, View content) {
         try {
-            Class<?> builderClass = Class.forName("miuix.appcompat.app.k", false, context.getClassLoader());
+            Class<?> builderClass = Class.forName(
+                    RecorderSymbols.MIUIX_DIALOG_BUILDER_CLASS, false, context.getClassLoader());
             Object builder = builderClass.getConstructor(Context.class).newInstance(context);
-            builderClass.getMethod("w", CharSequence.class).invoke(builder, title);
-            builderClass.getMethod("x", View.class).invoke(builder, content);
-            return (Dialog) builderClass.getMethod("y").invoke(builder);
-        } catch (ReflectiveOperationException | ClassCastException ignored) {
+            builderClass.getMethod(RecorderSymbols.DIALOG_TITLE_METHOD, CharSequence.class).invoke(builder, title);
+            builderClass.getMethod(RecorderSymbols.DIALOG_CONTENT_METHOD, View.class).invoke(builder, content);
+            return (Dialog) builderClass.getMethod(RecorderSymbols.DIALOG_SHOW_METHOD).invoke(builder);
+        } catch (ReflectiveOperationException | ClassCastException exception) {
+            Log.w(TAG, "MIUIX menu dialog unavailable; using Android dialog", exception);
             return new AlertDialog.Builder(context).setTitle(title).setView(content).show();
         }
     }
@@ -658,15 +765,50 @@ final class FilterUi {
         Long start = state.startTime();
         Long end = state.endTime() == null ? null : previousDay(state.endTime());
         if (start != null && end != null) {
-            return resources.getString(R.string.date_range, formatDate(resources, start), formatDate(resources, end));
+            if (start.equals(end)) {
+                return formatShortDate(start);
+            }
+            return resources.getString(
+                    R.string.date_range,
+                    formatShortDate(start),
+                    isSameYear(start, end) ? formatShortMonthDay(end) : formatShortDate(end));
         }
         if (start != null) {
-            return resources.getString(R.string.date_from, formatDate(resources, start));
+            return resources.getString(R.string.date_from, formatShortDate(start));
         }
         if (end != null) {
-            return resources.getString(R.string.date_until, formatDate(resources, end));
+            return resources.getString(R.string.date_until, formatShortDate(end));
         }
         return resources.getString(R.string.date_any);
+    }
+
+    private static String formatShortDate(long time) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTimeInMillis(time);
+        return String.format(
+                Locale.ROOT,
+                "%04d.%02d.%02d",
+                calendar.get(Calendar.YEAR),
+                calendar.get(Calendar.MONTH) + 1,
+                calendar.get(Calendar.DAY_OF_MONTH));
+    }
+
+    private static String formatShortMonthDay(long time) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTimeInMillis(time);
+        return String.format(
+                Locale.ROOT,
+                "%02d.%02d",
+                calendar.get(Calendar.MONTH) + 1,
+                calendar.get(Calendar.DAY_OF_MONTH));
+    }
+
+    private static boolean isSameYear(long first, long second) {
+        Calendar firstDate = Calendar.getInstance();
+        Calendar secondDate = Calendar.getInstance();
+        firstDate.setTimeInMillis(first);
+        secondDate.setTimeInMillis(second);
+        return firstDate.get(Calendar.YEAR) == secondDate.get(Calendar.YEAR);
     }
 
     private static String formatDate(Resources resources, long time) {

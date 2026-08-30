@@ -33,7 +33,7 @@
     <string name="date_any">Any date</string>
     <string name="date_from">From %1$s</string>
     <string name="date_until">Until %1$s</string>
-    <string name="date_range">%1$s – %2$s</string>
+    <string name="date_range">%1$s–%2$s</string>
     <string name="date_start_value">Start\n%1$s</string>
     <string name="date_end_value">End\n%1$s</string>
     <string name="clear_date_filter">Clear date filter</string>

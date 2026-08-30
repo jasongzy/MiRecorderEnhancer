@@ -31,7 +31,7 @@
     <string name="date_any">不限日期</string>
     <string name="date_from">自 %1$s 起</string>
     <string name="date_until">截至 %1$s</string>
-    <string name="date_range">%1$s 至 %2$s</string>
+    <string name="date_range">%1$s–%2$s</string>
     <string name="date_start_value">开始\n%1$s</string>
     <string name="date_end_value">结束\n%1$s</string>
     <string name="clear_date_filter">清除日期筛选</string>
