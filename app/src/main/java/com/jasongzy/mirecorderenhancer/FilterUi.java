@@ -787,7 +787,7 @@ final class FilterUi {
         calendar.setTimeInMillis(time);
         return String.format(
                 Locale.ROOT,
-                "%04d.%02d.%02d",
+                "%04d/%d/%d",
                 calendar.get(Calendar.YEAR),
                 calendar.get(Calendar.MONTH) + 1,
                 calendar.get(Calendar.DAY_OF_MONTH));
@@ -798,7 +798,7 @@ final class FilterUi {
         calendar.setTimeInMillis(time);
         return String.format(
                 Locale.ROOT,
-                "%02d.%02d",
+                "%d/%d",
                 calendar.get(Calendar.MONTH) + 1,
                 calendar.get(Calendar.DAY_OF_MONTH));
     }
