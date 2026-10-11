@@ -29,8 +29,8 @@ jobs:
     steps:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-      - name: Install Android build tools
-        run: sdkmanager "build-tools;${ANDROID_BUILD_TOOLS}"
+        with:
+          packages: "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
       - name: Download source release
         env:
           GH_TOKEN: ${{ github.token }}
